@@ -1,0 +1,7 @@
+commands: "npx"
+args:
+  - "tsx"
+  - "/path/to/lightdash-mcp-server/src/index.ts"
+env:
+  LIGHTDASH_API_KEY: $LIGHTDASH_API_KEY
+  LIGHTDASH_API_URL: $LIGHTDASH_API_URL
