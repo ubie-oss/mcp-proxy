@@ -41,6 +41,7 @@ type JSONRPCResponse struct {
 type Server struct {
 	mcpClients map[string]*MCPClient
 	mu         sync.RWMutex
+	server     *http.Server
 }
 
 func NewServer(mcpClients map[string]*MCPClient) *Server {
@@ -199,10 +200,23 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) Start(port string) error {
-	http.HandleFunc("/_health", s.handleHealthCheck)
-	http.HandleFunc("/", s.handleJSONRPC)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/_health", s.handleHealthCheck)
+	mux.HandleFunc("/", s.handleJSONRPC)
 
 	addr := fmt.Sprintf(":%s", port)
+	s.server = &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
 	log.Printf("Starting MCP http proxy server on %s", addr)
-	return http.ListenAndServe(addr, nil)
+	return s.server.ListenAndServe()
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.server != nil {
+		return s.server.Shutdown(ctx)
+	}
+	return nil
 }
