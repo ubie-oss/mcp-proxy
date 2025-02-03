@@ -53,21 +53,21 @@ func (c *MCPClient) Initialize(ctx context.Context, req mcp.InitializeRequest) (
 	return resp, nil
 }
 
-func (c *MCPClient) ListTools() ([]mcp.Tool, error) {
+func (c *MCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	req := mcp.ListToolsRequest{}
-	resp, err := c.client.ListTools(context.Background(), req)
+	resp, err := c.client.ListTools(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
 	return resp.Tools, nil
 }
 
-func (c *MCPClient) CallTool(name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
 	req := mcp.CallToolRequest{}
 	req.Params.Name = name
 	req.Params.Arguments = args
 
-	resp, err := c.client.CallTool(context.Background(), req)
+	resp, err := c.client.CallTool(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to call tool: %w", err)
 	}

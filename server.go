@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,11 +9,16 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-const jsonrpcVersion = "2.0"
+const (
+	jsonrpcVersion = "2.0"
+	// Default timeout for each request
+	defaultRequestTimeout = 60 * time.Second
+)
 
 type JSONRPCRequest struct {
 	JSONRPC string                 `json:"jsonrpc"`
@@ -44,6 +50,10 @@ func NewServer(mcpClients map[string]*MCPClient) *Server {
 }
 
 func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	// Create a context with timeout for the request
+	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
+	defer cancel()
+
 	// Extract server name from path
 	serverName := strings.Trim(r.URL.Path, "/")
 	if serverName == "" {
@@ -101,14 +111,24 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	case "notifications/initialized":
 		result = &mcp.InitializedNotification{}
 	case "tools/list":
-		tools, err := mcpClient.ListTools()
-		if err == nil {
-			result = &mcp.ListToolsResult{
-				Tools: tools,
+		select {
+		case <-ctx.Done():
+			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
+		default:
+			tools, err := mcpClient.ListTools(ctx)
+			if err == nil {
+				result = &mcp.ListToolsResult{
+					Tools: tools,
+				}
 			}
 		}
 	case "tools/call":
-		result, err = mcpClient.CallTool(req.Params["name"].(string), req.Params["arguments"].(map[string]interface{}))
+		select {
+		case <-ctx.Done():
+			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
+		default:
+			result, err = mcpClient.CallTool(ctx, req.Params["name"].(string), req.Params["arguments"].(map[string]interface{}))
+		}
 	default:
 		err = fmt.Errorf("method not found: %s", req.Method)
 	}
