@@ -12,7 +12,7 @@ type MCPClient struct {
 	client *client.StdioMCPClient
 }
 
-func NewMCPClient(cfg *Config) (*MCPClient, error) {
+func NewMCPClient(cfg *MCPClientConfig) (*MCPClient, error) {
 	// Convert map[string]string to []string for environment variables
 	env := make([]string, 0, len(cfg.Env))
 	for k, v := range cfg.Env {

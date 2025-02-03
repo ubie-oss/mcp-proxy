@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -32,17 +33,32 @@ type JSONRPCResponse struct {
 }
 
 type Server struct {
-	mcpClient *MCPClient
-	mu        sync.RWMutex
+	mcpClients map[string]*MCPClient
+	mu         sync.RWMutex
 }
 
-func NewServer(mcpClient *MCPClient) *Server {
+func NewServer(mcpClients map[string]*MCPClient) *Server {
 	return &Server{
-		mcpClient: mcpClient,
+		mcpClients: mcpClients,
 	}
 }
 
 func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	// Extract server name from path
+	serverName := strings.Trim(r.URL.Path, "/")
+	if serverName == "" {
+		http.Error(w, "Server name is required in path", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.RLock()
+	mcpClient, exists := s.mcpClients[serverName]
+	s.mu.RUnlock()
+	if !exists {
+		http.Error(w, fmt.Sprintf("Server %s not found", serverName), http.StatusNotFound)
+		return
+	}
+
 	// 1. Method check
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -74,7 +90,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 3. Process methods
-	log.Printf("Calling MCP tool: %s", req.Method)
+	log.Printf("[%s] Calling MCP method: %s", serverName, req.Method)
 	var result interface{}
 	s.mu.RLock()
 	switch req.Method {
@@ -85,14 +101,14 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	case "notifications/initialized":
 		result = &mcp.InitializedNotification{}
 	case "tools/list":
-		tools, err := s.mcpClient.ListTools()
+		tools, err := mcpClient.ListTools()
 		if err == nil {
 			result = &mcp.ListToolsResult{
 				Tools: tools,
 			}
 		}
 	case "tools/call":
-		result, err = s.mcpClient.CallTool(req.Params["name"].(string), req.Params["arguments"].(map[string]interface{}))
+		result, err = mcpClient.CallTool(req.Params["name"].(string), req.Params["arguments"].(map[string]interface{}))
 	default:
 		err = fmt.Errorf("method not found: %s", req.Method)
 	}

@@ -10,7 +10,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ServerConfig struct {
+	Commands string            `yaml:"commands"`
+	Args     []string          `yaml:"args"`
+	Env      map[string]string `yaml:"env"`
+}
+
 type Config struct {
+	Servers map[string]ServerConfig `yaml:"servers"`
+}
+
+// MCPClientConfig is used for NewMCPClient
+type MCPClientConfig struct {
 	Commands string            `yaml:"commands"`
 	Args     []string          `yaml:"args"`
 	Env      map[string]string `yaml:"env"`
@@ -34,6 +45,7 @@ func loadConfig(path string) (*Config, error) {
 }
 
 func main() {
+	// Load dotenv
 	if err := godotenv.Load(); err != nil {
 		log.Fatal(err)
 	}
@@ -49,15 +61,28 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Initialize MCP client
-	mcpClient, err := NewMCPClient(cfg)
-	if err != nil {
-		log.Fatal(err)
+	// Initialize MCP clients
+	mcpClients := make(map[string]*MCPClient)
+	for name, serverCfg := range cfg.Servers {
+		mcpCfg := &MCPClientConfig{
+			Commands: serverCfg.Commands,
+			Args:     serverCfg.Args,
+			Env:      serverCfg.Env,
+		}
+		client, err := NewMCPClient(mcpCfg)
+		if err != nil {
+			log.Fatal(err)
+		}
+		mcpClients[name] = client
 	}
-	defer mcpClient.Close()
+	defer func() {
+		for _, client := range mcpClients {
+			client.Close()
+		}
+	}()
 
 	// Start server
-	server := NewServer(mcpClient)
+	server := NewServer(mcpClients)
 	if err := server.Start(*port); err != nil {
 		log.Fatal(err)
 	}

@@ -1,0 +1,18 @@
+servers:
+  server1:
+    commands: "npx"
+    args:
+      - "tsx"
+      - "path/to/index.ts"
+    env:
+      VAR1: $VAR1
+      VAR2: $VAR2
+
+  server2:
+    commands: "npx"
+    args:
+      - "tsx"
+      - "path/to/index.ts"
+    env:
+      VAR1: $VAR1
+      VAR2: $VAR2
