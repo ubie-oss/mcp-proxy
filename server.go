@@ -173,7 +173,13 @@ func writeJSONRPCError(w http.ResponseWriter, code int, message string, data int
 	}
 }
 
+func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("OK"))
+}
+
 func (s *Server) Start(port string) error {
+	http.HandleFunc("/_health", s.handleHealthCheck)
 	http.HandleFunc("/", s.handleJSONRPC)
 
 	addr := fmt.Sprintf(":%s", port)
