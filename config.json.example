@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "server1": {
+      "command": "npx",
+      "args": ["module1"],
+      "env": {
+        "VAR1": "$SERVER1_VAR1",
+        "VAR2": "$SERVER1_VAR2"
+      }
+    },
+    "server2": {
+      "command": "npx",
+      "args": ["module2"],
+      "env": {
+        "VAR1": "$SERVER2_VAR1",
+        "VAR2": "$SERVER2_VAR2"
+      }
+    }
+  }
+} 

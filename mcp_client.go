@@ -9,21 +9,24 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// MCPClient は外部MCPサーバーとのインターフェースを提供する
 type MCPClient struct {
+	config *MCPClientConfig
 	client *client.StdioMCPClient
 }
 
-func NewMCPClient(cfg *MCPClientConfig) (*MCPClient, error) {
+// NewMCPClient は新しいMCPクライアントを作成する
+func NewMCPClient(config *MCPClientConfig) (*MCPClient, error) {
 	// Convert map[string]string to []string for environment variables
-	env := make([]string, 0, len(cfg.Env))
-	for k, v := range cfg.Env {
+	env := make([]string, 0, len(config.Env))
+	for k, v := range config.Env {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
 	c, err := client.NewStdioMCPClient(
-		cfg.Command,
+		config.Command,
 		env,
-		cfg.Args...,
+		config.Args...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP client: %w", err)
@@ -45,6 +48,7 @@ func NewMCPClient(cfg *MCPClientConfig) (*MCPClient, error) {
 	}
 
 	return &MCPClient{
+		config: config,
 		client: c,
 	}, nil
 }
@@ -78,6 +82,13 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]i
 	return resp, nil
 }
 
+// Close はMCPクライアントの接続を閉じる
 func (c *MCPClient) Close() error {
 	return c.client.Close()
+}
+
+// Call はMCPクライアントを介してリクエストを実行する
+func (c *MCPClient) Call(functionName string, params map[string]interface{}) (interface{}, error) {
+	// 実際の実装では、ここで外部プロセスへのリクエスト処理を行います
+	return nil, fmt.Errorf("not implemented")
 }

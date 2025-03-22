@@ -38,12 +38,14 @@ type JSONRPCResponse struct {
 	ID interface{} `json:"id"`
 }
 
+// Server はHTTPサーバーを表す
 type Server struct {
 	mcpClients map[string]*MCPClient
 	mu         sync.RWMutex
 	server     *http.Server
 }
 
+// NewServer は新しいサーバーを作成する
 func NewServer(mcpClients map[string]*MCPClient) *Server {
 	return &Server{
 		mcpClients: mcpClients,
@@ -210,6 +212,7 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("OK"))
 }
 
+// Start はサーバーを起動する
 func (s *Server) Start(port string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/_health", s.handleHealthCheck)
@@ -225,6 +228,7 @@ func (s *Server) Start(port string) error {
 	return s.server.ListenAndServe()
 }
 
+// Shutdown はサーバーを安全に停止する
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.server != nil {
 		return s.server.Shutdown(ctx)

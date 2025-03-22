@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,41 +11,18 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"gopkg.in/yaml.v3"
 )
 
+// ServerConfig はMCPサーバー設定を表す構造体です
 type ServerConfig struct {
-	Command string            `yaml:"command"`
-	Args    []string          `yaml:"args"`
-	Env     map[string]string `yaml:"env"`
+	Command string            `yaml:"command" json:"command"`
+	Args    []string          `yaml:"args" json:"args"`
+	Env     map[string]string `yaml:"env" json:"env"`
 }
 
+// Config はアプリケーション全体の設定を表す構造体です
 type Config struct {
-	MCPServers map[string]ServerConfig `yaml:"mcpServers"`
-}
-
-// MCPClientConfig is used for NewMCPClient
-type MCPClientConfig struct {
-	Command string            `yaml:"command"`
-	Args    []string          `yaml:"args"`
-	Env     map[string]string `yaml:"env"`
-}
-
-func loadConfig(path string) (*Config, error) {
-	buf, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config file: %w", err)
-	}
-
-	// To enable embed environment variables
-	expanded := os.ExpandEnv(string(buf))
-
-	var cfg Config
-	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse YAML: %w", err)
-	}
-
-	return &cfg, nil
+	MCPServers map[string]ServerConfig `yaml:"mcpServers" json:"mcpServers"`
 }
 
 func main() {
@@ -66,7 +42,7 @@ func main() {
 	}
 
 	// Load config file
-	cfg, err := loadConfig(*configPath)
+	cfg, err := LoadConfig(*configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -74,11 +50,7 @@ func main() {
 	// Initialize MCP clients
 	mcpClients := make(map[string]*MCPClient)
 	for name, serverCfg := range cfg.MCPServers {
-		mcpCfg := &MCPClientConfig{
-			Command: serverCfg.Command,
-			Args:    serverCfg.Args,
-			Env:     serverCfg.Env,
-		}
+		mcpCfg := ConvertToMCPClientConfig(serverCfg)
 		client, err := NewMCPClient(mcpCfg)
 		if err != nil {
 			log.Fatal(err)
