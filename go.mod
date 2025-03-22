@@ -1,4 +1,4 @@
-module github.com/syucream/mcp-proxy
+module github.com/ubie-oss/mcp-proxy
 
 go 1.23.5
 

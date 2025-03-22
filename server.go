@@ -209,7 +209,10 @@ func writeJSONRPCError(w http.ResponseWriter, code int, message string, data int
 
 func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
+	_, err := w.Write([]byte("OK"))
+	if err != nil {
+		log.Printf("Failed to write health check response: %v", err)
+	}
 }
 
 // Start はサーバーを起動する
