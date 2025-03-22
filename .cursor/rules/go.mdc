@@ -1,7 +1,9 @@
-# mcp-proxy
-
-## Language
-- Go
+---
+description: 
+globs: *.go
+alwaysApply: false
+---
+The fundamental rules to implement Go code
 
 ## Best Practices
 - Always run `go build` after making changes
@@ -14,14 +16,15 @@
 - After change: Don't forget to run `go build` to verify your changes
 - Before commit: Run all tests and linters before committing
 
+## Code comment
+- Always describe in English
+
 ## Linting
-- Enable: true
-- Tools:
-  - golint
-  - staticcheck
-  - errcheck
+- golint
+- staticcheck
+- errcheck
 
 ## Formatting
-- Enable: true
-- Tool: gofmt
+- gofmt
+- goimports
 
