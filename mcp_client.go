@@ -9,13 +9,18 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
-// MCPClient は外部MCPサーバーとのインターフェースを提供する
+const (
+	// default initialize timeout
+	DEFAULT_TIMEOUT = 30 * time.Second
+)
+
+// MCPClient provides an interface to external MCP servers
 type MCPClient struct {
 	config *MCPClientConfig
 	client *client.StdioMCPClient
 }
 
-// NewMCPClient は新しいMCPクライアントを作成する
+// NewMCPClient creates a new MCP client
 func NewMCPClient(config *MCPClientConfig) (*MCPClient, error) {
 	// Convert map[string]string to []string for environment variables
 	env := make([]string, 0, len(config.Env))
@@ -40,7 +45,7 @@ func NewMCPClient(config *MCPClientConfig) (*MCPClient, error) {
 		Version: "1.0.0",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), DEFAULT_TIMEOUT)
 	defer cancel()
 
 	if _, err := c.Initialize(ctx, initRequest); err != nil {
@@ -82,13 +87,13 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]i
 	return resp, nil
 }
 
-// Close はMCPクライアントの接続を閉じる
+// Close closes the connection to the MCP client
 func (c *MCPClient) Close() error {
 	return c.client.Close()
 }
 
-// Call はMCPクライアントを介してリクエストを実行する
+// Call executes a request via the MCP client
 func (c *MCPClient) Call(functionName string, params map[string]interface{}) (interface{}, error) {
-	// 実際の実装では、ここで外部プロセスへのリクエスト処理を行います
+	// In the actual implementation, this would handle the request to the external process
 	return nil, fmt.Errorf("not implemented")
 }

@@ -38,14 +38,14 @@ type JSONRPCResponse struct {
 	ID interface{} `json:"id"`
 }
 
-// Server はHTTPサーバーを表す
+// Server represents an HTTP server
 type Server struct {
 	mcpClients map[string]*MCPClient
 	mu         sync.RWMutex
 	server     *http.Server
 }
 
-// NewServer は新しいサーバーを作成する
+// NewServer creates a new server
 func NewServer(mcpClients map[string]*MCPClient) *Server {
 	return &Server{
 		mcpClients: mcpClients,
@@ -135,7 +135,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
 		default:
 			log.Printf("[%s] Calling MCP tool: %s", serverName, req.Params["name"].(string))
-			// argumentsの型アサーションを試み、失敗したら空のマップを使用
+			// Try type assertion for arguments, use empty map if it fails
 			args, ok := req.Params["arguments"].(map[string]interface{})
 			if !ok {
 				log.Printf("[%s] Arguments type assertion failed, using empty map", serverName)
@@ -215,7 +215,7 @@ func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Start はサーバーを起動する
+// Start starts the server
 func (s *Server) Start(port string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/_health", s.handleHealthCheck)
@@ -231,7 +231,7 @@ func (s *Server) Start(port string) error {
 	return s.server.ListenAndServe()
 }
 
-// Shutdown はサーバーを安全に停止する
+// Shutdown safely stops the server
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.server != nil {
 		return s.server.Shutdown(ctx)

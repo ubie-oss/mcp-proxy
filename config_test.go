@@ -9,10 +9,10 @@ import (
 )
 
 func TestLoadConfig(t *testing.T) {
-	// テスト用の一時ディレクトリを作成
+	// Create a temporary directory for testing
 	tempDir, err := os.MkdirTemp("", "mcp-proxy-test")
 	if err != nil {
-		t.Fatalf("テスト用ディレクトリの作成に失敗: %v", err)
+		t.Fatalf("Failed to create test directory: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
 
@@ -25,7 +25,7 @@ func TestLoadConfig(t *testing.T) {
 		wantErr   bool
 	}{
 		{
-			name: "有効なJSONファイル",
+			name: "Valid JSON file",
 			content: `{
 				"mcpServers": {
 					"test-service": {
@@ -50,7 +50,7 @@ func TestLoadConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "有効なYAMLファイル",
+			name: "Valid YAML file",
 			content: `mcpServers:
   test-service:
     command: echo
@@ -72,7 +72,7 @@ func TestLoadConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "環境変数展開のテスト",
+			name: "Environment variable expansion test",
 			content: `mcpServers:
   test-service:
     command: echo
@@ -97,19 +97,19 @@ func TestLoadConfig(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:      "存在しないファイル",
+			name:      "Non-existent file",
 			content:   "",
 			extension: ".json",
 			wantErr:   true,
 		},
 		{
-			name:      "不正なJSON",
+			name:      "Invalid JSON",
 			content:   `{"invalid": json}`,
 			extension: ".json",
 			wantErr:   true,
 		},
 		{
-			name:      "不正なYAML",
+			name:      "Invalid YAML",
 			content:   `invalid: - yaml`,
 			extension: ".yaml",
 			wantErr:   true,
@@ -118,7 +118,7 @@ func TestLoadConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 環境変数の設定
+			// Set environment variables
 			for k, v := range tt.envVars {
 				os.Setenv(k, v)
 				defer os.Unsetenv(k)
@@ -126,14 +126,14 @@ func TestLoadConfig(t *testing.T) {
 
 			var path string
 			if tt.content != "" {
-				// 一時ファイルの作成
+				// Create temporary file
 				filename := "config" + tt.extension
 				path = filepath.Join(tempDir, filename)
 				if err := os.WriteFile(path, []byte(tt.content), 0644); err != nil {
-					t.Fatalf("テストファイルの作成に失敗: %v", err)
+					t.Fatalf("Failed to create test file: %v", err)
 				}
 			} else {
-				// 存在しないファイルのテスト
+				// Test for non-existent file
 				path = filepath.Join(tempDir, "non-existent-file"+tt.extension)
 			}
 
@@ -193,7 +193,7 @@ func TestConvertToMCPClientConfig(t *testing.T) {
 	}
 }
 
-// JSONとYAMLのマーシャル/アンマーシャルのラウンドトリップテスト
+// JSON and YAML marshalling/unmarshalling round-trip test
 func TestMCPClientConfigSerialization(t *testing.T) {
 	original := MCPClientConfig{
 		Command: "test-command",
@@ -201,18 +201,18 @@ func TestMCPClientConfigSerialization(t *testing.T) {
 		Env:     map[string]string{"ENV1": "val1", "ENV2": "val2"},
 	}
 
-	// JSONシリアライズ/デシリアライズのテスト
+	// JSON serialization/deserialization test
 	jsonData, err := json.Marshal(original)
 	if err != nil {
-		t.Fatalf("JSONマーシャルに失敗: %v", err)
+		t.Fatalf("Failed to marshal JSON: %v", err)
 	}
 
 	var jsonDeserialized MCPClientConfig
 	if err := json.Unmarshal(jsonData, &jsonDeserialized); err != nil {
-		t.Fatalf("JSONアンマーシャルに失敗: %v", err)
+		t.Fatalf("Failed to unmarshal JSON: %v", err)
 	}
 
 	if !reflect.DeepEqual(original, jsonDeserialized) {
-		t.Errorf("JSONラウンドトリップ後のデータが一致しません。元: %v, 結果: %v", original, jsonDeserialized)
+		t.Errorf("Data does not match after JSON round-trip. Original: %v, Result: %v", original, jsonDeserialized)
 	}
 }

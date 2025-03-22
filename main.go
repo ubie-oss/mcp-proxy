@@ -13,14 +13,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// ServerConfig はMCPサーバー設定を表す構造体です
+// ServerConfig represents the MCP server configuration structure
 type ServerConfig struct {
 	Command string            `yaml:"command" json:"command"`
 	Args    []string          `yaml:"args" json:"args"`
 	Env     map[string]string `yaml:"env" json:"env"`
 }
 
-// Config はアプリケーション全体の設定を表す構造体です
+// Config represents the application's global configuration structure
 type Config struct {
 	MCPServers map[string]ServerConfig `yaml:"mcpServers" json:"mcpServers"`
 }

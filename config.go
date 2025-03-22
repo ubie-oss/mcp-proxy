@@ -9,26 +9,26 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MCPClientConfig はNewMCPClientで使用される設定です
+// MCPClientConfig is the configuration used in NewMCPClient
 type MCPClientConfig struct {
 	Command string            `yaml:"command" json:"command"`
 	Args    []string          `yaml:"args" json:"args"`
 	Env     map[string]string `yaml:"env" json:"env"`
 }
 
-// LoadConfig は指定されたパスから設定ファイルを読み込みます
+// LoadConfig loads the configuration file from the specified path
 func LoadConfig(path string) (*Config, error) {
 	buf, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config file: %w", err)
 	}
 
-	// 環境変数の展開を有効にする
+	// Enable environment variable expansion
 	expanded := os.ExpandEnv(string(buf))
 
 	var cfg Config
 
-	// ファイル拡張子から形式を判断
+	// Determine format from file extension
 	ext := filepath.Ext(path)
 	switch ext {
 	case ".json":
@@ -40,9 +40,9 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, fmt.Errorf("failed to parse YAML: %w", err)
 		}
 	default:
-		// 拡張子がない場合や認識できない場合は、YAMLとして試行
+		// If no extension or unrecognized, try as YAML
 		if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
-			// YAMLとして失敗した場合はJSONとして試行
+			// If YAML fails, try as JSON
 			if jsonErr := json.Unmarshal([]byte(expanded), &cfg); jsonErr != nil {
 				return nil, fmt.Errorf("failed to parse config file (tried both YAML and JSON): %w", err)
 			}
@@ -52,7 +52,7 @@ func LoadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// ConvertToMCPClientConfig はServerConfigからMCPClientConfigへの変換を行います
+// ConvertToMCPClientConfig converts ServerConfig to MCPClientConfig
 func ConvertToMCPClientConfig(serverCfg ServerConfig) *MCPClientConfig {
 	return &MCPClientConfig{
 		Command: serverCfg.Command,
