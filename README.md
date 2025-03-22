@@ -3,6 +3,12 @@
 A thin MCP proxy. It allows clients to connect MCP servers via HTTP without SSE/streaming custom transport.
 It enables to put it on a simple infrastructure.
 
+# How to install
+
+```sh
+go get github.com/ubie-oss/mcp-proxy
+```
+
 # How to use
 
 ## Prepare your mcp config file
