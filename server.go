@@ -55,12 +55,16 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
 	defer cancel()
 
-	// Extract server name from path
-	serverName := strings.Trim(r.URL.Path, "/")
-	if serverName == "" {
+	// Extract server name from the first path segment
+	path := strings.Trim(r.URL.Path, "/")
+	pathSegments := strings.SplitN(path, "/", 2)
+
+	if len(pathSegments) == 0 || pathSegments[0] == "" {
 		http.Error(w, "Server name is required in path", http.StatusBadRequest)
 		return
 	}
+
+	serverName := pathSegments[0]
 
 	s.mu.RLock()
 	mcpClient, exists := s.mcpClients[serverName]
@@ -128,7 +132,14 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
 		default:
-			result, err = mcpClient.CallTool(ctx, req.Params["name"].(string), req.Params["arguments"].(map[string]interface{}))
+			log.Printf("[%s] Calling MCP tool: %s", serverName, req.Params["name"].(string))
+			// argumentsの型アサーションを試み、失敗したら空のマップを使用
+			args, ok := req.Params["arguments"].(map[string]interface{})
+			if !ok {
+				log.Printf("[%s] Arguments type assertion failed, using empty map", serverName)
+				args = make(map[string]interface{})
+			}
+			result, err = mcpClient.CallTool(ctx, req.Params["name"].(string), args)
 		}
 	default:
 		err = fmt.Errorf("method not found: %s", req.Method)
@@ -136,7 +147,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	if err != nil {
-		log.Printf("MCP tool call error: %v", err)
+		log.Printf("[%s] MCP error: %v", serverName, err)
 		writeJSONRPCError(w, -32603, "Internal error", err.Error(), req.ID)
 		return
 	}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -20,7 +21,7 @@ func NewMCPClient(cfg *MCPClientConfig) (*MCPClient, error) {
 	}
 
 	c, err := client.NewStdioMCPClient(
-		cfg.Commands,
+		cfg.Command,
 		env,
 		cfg.Args...,
 	)
@@ -28,7 +29,7 @@ func NewMCPClient(cfg *MCPClientConfig) (*MCPClient, error) {
 		return nil, fmt.Errorf("failed to create MCP client: %w", err)
 	}
 
-	// Initialize the client
+	// Initialize the client with timeout
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
@@ -36,7 +37,10 @@ func NewMCPClient(cfg *MCPClientConfig) (*MCPClient, error) {
 		Version: "1.0.0",
 	}
 
-	if _, err := c.Initialize(context.Background(), initRequest); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if _, err := c.Initialize(ctx, initRequest); err != nil {
 		return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
 	}
 

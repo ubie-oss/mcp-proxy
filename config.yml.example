@@ -1,18 +1,15 @@
-servers:
+mcpServers:
   server1:
-    commands: "npx"
+    command: "npx"
     args:
-      - "tsx"
-      - "path/to/index.ts"
+      - "module1"
     env:
-      VAR1: $VAR1
-      VAR2: $VAR2
-
+      VAR1: $SERVER1_VAR1
+      VAR2: $SERVER1_VAR2
   server2:
-    commands: "npx"
+    command: "npx"
     args:
-      - "tsx"
-      - "path/to/index.ts"
+      - "module2"
     env:
-      VAR1: $VAR1
-      VAR2: $VAR2
+      VAR1: $SERVER2_VAR1
+      VAR2: $SERVER2_VAR2

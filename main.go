@@ -16,20 +16,20 @@ import (
 )
 
 type ServerConfig struct {
-	Commands string            `yaml:"commands"`
-	Args     []string          `yaml:"args"`
-	Env      map[string]string `yaml:"env"`
+	Command string            `yaml:"command"`
+	Args    []string          `yaml:"args"`
+	Env     map[string]string `yaml:"env"`
 }
 
 type Config struct {
-	Servers map[string]ServerConfig `yaml:"servers"`
+	MCPServers map[string]ServerConfig `yaml:"mcpServers"`
 }
 
 // MCPClientConfig is used for NewMCPClient
 type MCPClientConfig struct {
-	Commands string            `yaml:"commands"`
-	Args     []string          `yaml:"args"`
-	Env      map[string]string `yaml:"env"`
+	Command string            `yaml:"command"`
+	Args    []string          `yaml:"args"`
+	Env     map[string]string `yaml:"env"`
 }
 
 func loadConfig(path string) (*Config, error) {
@@ -50,15 +50,20 @@ func loadConfig(path string) (*Config, error) {
 }
 
 func main() {
-	// Load dotenv
+	// Load dotenv if it exists
 	if err := godotenv.Load(); err != nil {
-		log.Fatal(err)
+		log.Printf("Notice: .env file not found, continuing without it")
 	}
 
 	// Handle command line arguments
-	configPath := flag.String("config", "config.yml", "path to config file")
+	configPath := flag.String("config", "", "path to config file (required)")
 	port := flag.String("port", "8080", "port to listen on")
 	flag.Parse()
+
+	// Check if config file path is provided
+	if *configPath == "" {
+		log.Fatal("Error: config file path is required. Use -config flag to specify it.")
+	}
 
 	// Load config file
 	cfg, err := loadConfig(*configPath)
@@ -68,17 +73,18 @@ func main() {
 
 	// Initialize MCP clients
 	mcpClients := make(map[string]*MCPClient)
-	for name, serverCfg := range cfg.Servers {
+	for name, serverCfg := range cfg.MCPServers {
 		mcpCfg := &MCPClientConfig{
-			Commands: serverCfg.Commands,
-			Args:     serverCfg.Args,
-			Env:      serverCfg.Env,
+			Command: serverCfg.Command,
+			Args:    serverCfg.Args,
+			Env:     serverCfg.Env,
 		}
 		client, err := NewMCPClient(mcpCfg)
 		if err != nil {
 			log.Fatal(err)
 		}
 		mcpClients[name] = client
+		log.Printf("Info: MCP Server '%s' initialized successfully", name)
 	}
 	defer func() {
 		for _, client := range mcpClients {
