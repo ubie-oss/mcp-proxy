@@ -41,7 +41,7 @@ type JSONRPCResponse struct {
 // Server represents an HTTP server
 type Server struct {
 	mcpClients map[string]*MCPClient
-	mu         sync.RWMutex
+	initMu     sync.RWMutex
 	server     *http.Server
 }
 
@@ -53,30 +53,39 @@ func NewServer(mcpClients map[string]*MCPClient) *Server {
 }
 
 func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
-	// Create a context with timeout for the request
-	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
-	defer cancel()
+	// Check if the MCP servers are ready
+	s.initMu.RLock()
+	if len(s.mcpClients) == 0 {
+		s.initMu.RUnlock()
+		http.Error(w, "Service not ready", http.StatusServiceUnavailable)
+		return
+	}
+	s.initMu.RUnlock()
 
 	// Extract server name from the first path segment
 	path := strings.Trim(r.URL.Path, "/")
 	pathSegments := strings.SplitN(path, "/", 2)
 
 	if len(pathSegments) == 0 || pathSegments[0] == "" {
+		s.initMu.RUnlock()
 		http.Error(w, "Server name is required in path", http.StatusBadRequest)
 		return
 	}
 
 	serverName := pathSegments[0]
-
-	s.mu.RLock()
 	mcpClient, exists := s.mcpClients[serverName]
-	s.mu.RUnlock()
+	s.initMu.RUnlock()
+
 	if !exists {
 		http.Error(w, fmt.Sprintf("Server %s not found", serverName), http.StatusNotFound)
 		return
 	}
 
-	// 1. Method check
+	// Create a context with timeout for the request
+	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
+	defer cancel()
+
+	// Method check
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -91,7 +100,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	// 2. Parse JSONRPC request
+	// Parse JSONRPC request
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		log.Printf("Failed to parse JSON-RPC request: %v", err)
@@ -106,10 +115,10 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Process methods
+	// Process methods
 	log.Printf("[%s] Calling MCP method: %s", serverName, req.Method)
 	var result interface{}
-	s.mu.RLock()
+
 	switch req.Method {
 	case "initialize":
 		result = &mcp.InitializeResult{
@@ -146,7 +155,6 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	default:
 		err = fmt.Errorf("method not found: %s", req.Method)
 	}
-	s.mu.RUnlock()
 
 	if err != nil {
 		log.Printf("[%s] MCP error: %v", serverName, err)
@@ -154,7 +162,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Build response
+	// Build response
 	resp := JSONRPCResponse{
 		JSONRPC: jsonrpcVersion,
 		Result:  result,
@@ -207,18 +215,39 @@ func writeJSONRPCError(w http.ResponseWriter, code int, message string, data int
 	}
 }
 
-func (s *Server) handleHealthCheck(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleLiveness(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
-	_, err := w.Write([]byte("OK"))
+	_, err := w.Write([]byte("Liveness OK"))
 	if err != nil {
-		log.Printf("Failed to write health check response: %v", err)
+		log.Printf("Failed to write liveness response: %v", err)
+	}
+}
+
+func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
+	s.initMu.RLock()
+	ready := len(s.mcpClients) > 0
+	s.initMu.RUnlock()
+
+	if ready {
+		w.WriteHeader(http.StatusOK)
+		_, err := w.Write([]byte("Readiness OK"))
+		if err != nil {
+			log.Printf("Failed to write readiness response: %v", err)
+		}
+	} else {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, err := w.Write([]byte("Readiness NOT OK"))
+		if err != nil {
+			log.Printf("Failed to write readiness response: %v", err)
+		}
 	}
 }
 
 // Start starts the server
 func (s *Server) Start(port string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/_health", s.handleHealthCheck)
+	mux.HandleFunc("/health/liveness", s.handleLiveness)
+	mux.HandleFunc("/health/readiness", s.handleReadiness)
 	mux.HandleFunc("/", s.handleJSONRPC)
 
 	addr := fmt.Sprintf(":%s", port)

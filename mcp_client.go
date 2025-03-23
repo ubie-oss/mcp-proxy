@@ -11,7 +11,7 @@ import (
 
 const (
 	// default initialize timeout
-	DEFAULT_TIMEOUT = 30 * time.Second
+	defaultInitializeTimeout = 60 * time.Second
 )
 
 // MCPClient provides an interface to external MCP servers
@@ -45,7 +45,7 @@ func NewMCPClient(config *MCPClientConfig) (*MCPClient, error) {
 		Version: "1.0.0",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), DEFAULT_TIMEOUT)
+	ctx, cancel := context.WithTimeout(context.Background(), defaultInitializeTimeout)
 	defer cancel()
 
 	if _, err := c.Initialize(ctx, initRequest); err != nil {

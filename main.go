@@ -47,32 +47,49 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Initialize MCP clients
-	mcpClients := make(map[string]*MCPClient)
-	for name, serverCfg := range cfg.MCPServers {
-		mcpCfg := ConvertToMCPClientConfig(serverCfg)
-		client, err := NewMCPClient(mcpCfg)
-		if err != nil {
-			log.Fatal(err)
-		}
-		mcpClients[name] = client
-		log.Printf("Info: MCP Server '%s' initialized successfully", name)
-	}
-	defer func() {
-		for _, client := range mcpClients {
-			client.Close()
-		}
-	}()
+	// Create empty MCP clients map and start server immediately
+	server := NewServer(make(map[string]*MCPClient))
 
 	// Create context for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// Start server
-	server := NewServer(mcpClients)
+	// Start server in a goroutine
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- server.Start(*port)
+	}()
+
+	// Initialize MCP clients asynchronously
+	go func() {
+		log.Println("Starting MCP client initialization...")
+		tempMcpClients := make(map[string]*MCPClient)
+		for name, serverCfg := range cfg.MCPServers {
+			mcpCfg := ConvertToMCPClientConfig(serverCfg)
+			client, err := NewMCPClient(mcpCfg)
+			if err != nil {
+				log.Printf("Error initializing MCP client '%s': %v", name, err)
+				continue
+			}
+			tempMcpClients[name] = client
+			log.Printf("Info: MCP Server '%s' initialized successfully", name)
+		}
+
+		// Update server's mcpClients map atomically with initMu lock
+		server.initMu.Lock()
+		server.mcpClients = tempMcpClients
+		server.initMu.Unlock()
+		log.Println("MCP client initialization completed; Now its ready")
+	}()
+
+	// Add cleanup for MCP clients on shutdown
+	defer func() {
+		server.initMu.RLock()
+		mcpClients := server.mcpClients
+		server.initMu.RUnlock()
+		for _, client := range mcpClients {
+			client.Close()
+		}
 	}()
 
 	// Wait for interrupt signal or server error
