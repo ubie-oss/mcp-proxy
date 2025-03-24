@@ -67,14 +67,12 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	pathSegments := strings.SplitN(path, "/", 2)
 
 	if len(pathSegments) == 0 || pathSegments[0] == "" {
-		s.initMu.RUnlock()
 		http.Error(w, "Server name is required in path", http.StatusBadRequest)
 		return
 	}
 
 	serverName := pathSegments[0]
 	mcpClient, exists := s.mcpClients[serverName]
-	s.initMu.RUnlock()
 
 	if !exists {
 		http.Error(w, fmt.Sprintf("Server %s not found", serverName), http.StatusNotFound)
