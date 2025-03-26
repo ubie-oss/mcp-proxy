@@ -57,12 +57,12 @@ func NewServer(mcpClients map[string]*MCPClient) *Server {
 func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	// Check if the MCP servers are ready
 	s.initMu.RLock()
+	defer s.initMu.RUnlock()
+
 	if len(s.mcpClients) == 0 {
-		s.initMu.RUnlock()
 		http.Error(w, "Service not ready", http.StatusServiceUnavailable)
 		return
 	}
-	s.initMu.RUnlock()
 
 	// Extract server name from the first path segment
 	path := strings.Trim(r.URL.Path, "/")
@@ -231,8 +231,9 @@ func (s *Server) handleLiveness(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 	s.initMu.RLock()
+	defer s.initMu.RUnlock()
+
 	ready := len(s.mcpClients) > 0
-	s.initMu.RUnlock()
 
 	if ready {
 		w.WriteHeader(http.StatusOK)

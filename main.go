@@ -98,8 +98,8 @@ func main() {
 	// Add cleanup for MCP clients on shutdown
 	defer func() {
 		server.initMu.RLock()
+		defer server.initMu.RUnlock()
 		mcpClients := server.mcpClients
-		server.initMu.RUnlock()
 		for _, client := range mcpClients {
 			client.Close()
 		}
