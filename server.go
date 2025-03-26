@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -43,12 +43,14 @@ type Server struct {
 	mcpClients map[string]*MCPClient
 	initMu     sync.RWMutex
 	server     *http.Server
+	logger     *slog.Logger
 }
 
 // NewServer creates a new server
 func NewServer(mcpClients map[string]*MCPClient) *Server {
 	return &Server{
 		mcpClients: mcpClients,
+		logger:     WithComponent("server"),
 	}
 }
 
@@ -79,6 +81,9 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create logger with server name
+	logger := WithComponentAndServer("server", serverName)
+
 	// Create a context with timeout for the request
 	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
 	defer cancel()
@@ -92,7 +97,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		log.Printf("Failed to read request body: %v", err)
+		logger.Error("Failed to read request body", "error", err)
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -101,20 +106,20 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	// Parse JSONRPC request
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		log.Printf("Failed to parse JSON-RPC request: %v", err)
+		logger.Error("Failed to parse JSON-RPC request", "error", err)
 		writeJSONRPCError(w, -32700, "Parse error", nil, nil)
 		return
 	}
 
 	// Validate required fields
 	if err := validateJSONRPCRequest(&req); err != nil {
-		log.Printf("Invalid JSON-RPC request: %v", err)
+		logger.Error("Invalid JSON-RPC request", "error", err)
 		writeJSONRPCError(w, -32600, err.Error(), nil, req.ID)
 		return
 	}
 
 	// Process methods
-	log.Printf("[%s] Calling MCP method: %s", serverName, req.Method)
+	logger.Info("Calling MCP method", "method", req.Method)
 	var result interface{}
 
 	switch req.Method {
@@ -141,11 +146,13 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
 		default:
-			log.Printf("[%s] Calling MCP tool: %s", serverName, req.Params["name"].(string))
+			toolName, _ := req.Params["name"].(string)
+			logger.Info("Calling MCP tool", "tool", toolName)
+
 			// Try type assertion for arguments, use empty map if it fails
 			args, ok := req.Params["arguments"].(map[string]interface{})
 			if !ok {
-				log.Printf("[%s] Arguments type assertion failed, using empty map", serverName)
+				logger.Warn("Arguments type assertion failed, using empty map")
 				args = make(map[string]interface{})
 			}
 			result, err = mcpClient.CallTool(ctx, req.Params["name"].(string), args)
@@ -155,7 +162,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err != nil {
-		log.Printf("[%s] MCP error: %v", serverName, err)
+		logger.Error("MCP error", "error", err)
 		writeJSONRPCError(w, -32603, "Internal error", err.Error(), req.ID)
 		return
 	}
@@ -170,7 +177,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("Failed to encode response: %v", err)
+		logger.Error("Failed to encode response", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
@@ -208,7 +215,8 @@ func writeJSONRPCError(w http.ResponseWriter, code int, message string, data int
 	w.WriteHeader(http.StatusOK)
 
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("Failed to encode error response: %v", err)
+		logger := WithComponent("server")
+		logger.Error("Failed to encode error response", "error", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
@@ -217,7 +225,7 @@ func (s *Server) handleLiveness(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, err := w.Write([]byte("Liveness OK"))
 	if err != nil {
-		log.Printf("Failed to write liveness response: %v", err)
+		s.logger.Error("Failed to write liveness response", "error", err)
 	}
 }
 
@@ -230,13 +238,13 @@ func (s *Server) handleReadiness(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, err := w.Write([]byte("Readiness OK"))
 		if err != nil {
-			log.Printf("Failed to write readiness response: %v", err)
+			s.logger.Error("Failed to write readiness response", "error", err)
 		}
 	} else {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, err := w.Write([]byte("Readiness NOT OK"))
 		if err != nil {
-			log.Printf("Failed to write readiness response: %v", err)
+			s.logger.Error("Failed to write readiness response", "error", err)
 		}
 	}
 }
@@ -248,20 +256,17 @@ func (s *Server) Start(port string) error {
 	mux.HandleFunc("/health/readiness", s.handleReadiness)
 	mux.HandleFunc("/", s.handleJSONRPC)
 
-	addr := fmt.Sprintf(":%s", port)
+	addr := ":" + port
 	s.server = &http.Server{
 		Addr:    addr,
 		Handler: mux,
 	}
 
-	log.Printf("Starting MCP http proxy server on %s", addr)
+	s.logger.Info("Starting MCP http proxy server", "address", addr)
 	return s.server.ListenAndServe()
 }
 
-// Shutdown safely stops the server
+// Shutdown gracefully shuts down the server
 func (s *Server) Shutdown(ctx context.Context) error {
-	if s.server != nil {
-		return s.server.Shutdown(ctx)
-	}
-	return nil
+	return s.server.Shutdown(ctx)
 }
