@@ -1,8 +1,11 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -58,5 +61,20 @@ func ConvertToMCPClientConfig(serverCfg ServerConfig) *MCPClientConfig {
 		Command: serverCfg.Command,
 		Args:    serverCfg.Args,
 		Env:     serverCfg.Env,
+	}
+}
+
+// LogSafeEnvChecksum calculates the SHA-256 checksum of environment variable values
+// without exposing the actual values in logs
+func LogConfig(logger *slog.Logger, serverName string, env map[string]string) {
+	for key, value := range env {
+		// Calculate SHA-256 checksum of the value
+		hash := sha256.Sum256([]byte(value))
+		checksum := hex.EncodeToString(hash[:])
+		// Log the key and value checksum (not the actual value)
+		logger.Debug("Environment variable checksum",
+			"server", serverName,
+			"key", key,
+			"value_checksum", checksum[:8]) // Only log first 8 chars of checksum for brevity
 	}
 }

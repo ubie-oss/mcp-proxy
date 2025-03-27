@@ -86,6 +86,11 @@ func main() {
 			}
 			tempMcpClients[name] = client
 			logger.Info("MCP Server initialized successfully", "server_name", name)
+
+			// Log environment variables checksums if in debug mode
+			if *debug {
+				LogConfig(logger, name, serverCfg.Env)
+			}
 		}
 
 		// Update server's mcpClients map atomically with initMu lock
