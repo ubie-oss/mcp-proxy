@@ -14,9 +14,10 @@ import (
 
 // MCPClientConfig is the configuration used in NewMCPClient
 type MCPClientConfig struct {
-	Command string            `yaml:"command" json:"command"`
-	Args    []string          `yaml:"args" json:"args"`
-	Env     map[string]string `yaml:"env" json:"env"`
+	Command    string            `yaml:"command" json:"command"`
+	Args       []string          `yaml:"args" json:"args"`
+	Env        map[string]string `yaml:"env" json:"env"`
+	Extensions *Extensions       `yaml:"_extensions" json:"_extensions"`
 }
 
 // LoadConfig loads the configuration file from the specified path
@@ -58,9 +59,10 @@ func LoadConfig(path string) (*Config, error) {
 // ConvertToMCPClientConfig converts ServerConfig to MCPClientConfig
 func ConvertToMCPClientConfig(serverCfg ServerConfig) *MCPClientConfig {
 	return &MCPClientConfig{
-		Command: serverCfg.Command,
-		Args:    serverCfg.Args,
-		Env:     serverCfg.Env,
+		Command:    serverCfg.Command,
+		Args:       serverCfg.Args,
+		Env:        serverCfg.Env,
+		Extensions: serverCfg.Extensions,
 	}
 }
 
