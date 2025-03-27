@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -156,7 +158,7 @@ func TestConvertToMCPClientConfig(t *testing.T) {
 		want      *MCPClientConfig
 	}{
 		{
-			name: "基本的な変換",
+			name: "Basic conversion",
 			serverCfg: ServerConfig{
 				Command: "test-command",
 				Args:    []string{"arg1", "arg2"},
@@ -169,7 +171,7 @@ func TestConvertToMCPClientConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "空の値を持つ設定",
+			name: "Empty values",
 			serverCfg: ServerConfig{
 				Command: "",
 				Args:    []string{},
@@ -215,4 +217,135 @@ func TestMCPClientConfigSerialization(t *testing.T) {
 	if !reflect.DeepEqual(original, jsonDeserialized) {
 		t.Errorf("Data does not match after JSON round-trip. Original: %v, Result: %v", original, jsonDeserialized)
 	}
+}
+
+// TestLogConfig tests secure logging functionality for environment variables
+func TestLogConfig(t *testing.T) {
+	// Create test environment variables map
+	testEnv := map[string]string{
+		"API_KEY":      "secret-api-key-123",
+		"DATABASE_URL": "postgres://user:password@localhost:5432/db",
+		"DEBUG":        "true",
+	}
+
+	// Prepare buffer to capture log output
+	var logBuffer strings.Builder
+	testHandler := slog.NewTextHandler(&logBuffer, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	testLogger := slog.New(testHandler)
+
+	// Execute the function under test
+	LogConfig(testLogger, "test-server", testEnv)
+
+	// Verify log output
+	logOutput := logBuffer.String()
+
+	// Verify each environment variable key is present in logs
+	for key := range testEnv {
+		if !strings.Contains(logOutput, key) {
+			t.Errorf("Log output doesn't contain key %s", key)
+		}
+	}
+
+	// Verify actual values (sensitive info) are not present in logs
+	for _, value := range testEnv {
+		if strings.Contains(logOutput, value) {
+			t.Errorf("Log output contains raw sensitive value: %s", value)
+		}
+	}
+
+	// Verify checksum format (generic check since implementation dependent)
+	if !strings.Contains(logOutput, "value_checksum=") {
+		t.Errorf("Log output doesn't contain checksums")
+	}
+
+	// Verify server name is correctly included in logs
+	if !strings.Contains(logOutput, "test-server") {
+		t.Errorf("Log output doesn't contain server name")
+	}
+}
+
+// TestLogConfigConsistency tests the consistency of checksum calculation
+func TestLogConfigConsistency(t *testing.T) {
+	// Capture and compare multiple log outputs for the same value
+	testValue := "very-secret-password"
+	testEnv := map[string]string{
+		"TEST_SECRET": testValue,
+	}
+
+	// First log output
+	var logBuffer1 strings.Builder
+	testHandler1 := slog.NewTextHandler(&logBuffer1, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	testLogger1 := slog.New(testHandler1)
+	LogConfig(testLogger1, "test-server", testEnv)
+	logOutput1 := logBuffer1.String()
+
+	// Second log output
+	var logBuffer2 strings.Builder
+	testHandler2 := slog.NewTextHandler(&logBuffer2, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	testLogger2 := slog.New(testHandler2)
+	LogConfig(testLogger2, "test-server", testEnv)
+	logOutput2 := logBuffer2.String()
+
+	// Extract checksum from log outputs
+	checksum1 := extractChecksum(logOutput1)
+	checksum2 := extractChecksum(logOutput2)
+
+	// Verify same checksum is generated for same value
+	if checksum1 == "" || checksum2 == "" {
+		t.Errorf("Failed to extract checksums from log output")
+	} else if checksum1 != checksum2 {
+		t.Errorf("Checksum calculation is not consistent: %s != %s", checksum1, checksum2)
+	}
+
+	// Verify different checksum is generated when value changes
+	testEnvModified := map[string]string{
+		"TEST_SECRET": testValue + "-modified",
+	}
+
+	var logBuffer3 strings.Builder
+	testHandler3 := slog.NewTextHandler(&logBuffer3, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	testLogger3 := slog.New(testHandler3)
+	LogConfig(testLogger3, "test-server", testEnvModified)
+	logOutput3 := logBuffer3.String()
+
+	// Extract checksum from modified value log
+	checksum3 := extractChecksum(logOutput3)
+
+	// Verify different values produce different checksums
+	if checksum1 == "" || checksum3 == "" {
+		t.Errorf("Failed to extract checksums from log output")
+	} else if checksum1 == checksum3 {
+		t.Errorf("Different values produced the same checksum: %s", checksum1)
+	}
+}
+
+// extractChecksum extracts the checksum value from log output
+func extractChecksum(logOutput string) string {
+	// Find the value_checksum field in the log output
+	checksumIndex := strings.Index(logOutput, "value_checksum=")
+	if checksumIndex == -1 {
+		return ""
+	}
+
+	// Extract the checksum value (assuming it's 8 chars as specified in the implementation)
+	checksumStart := checksumIndex + len("value_checksum=")
+	if checksumStart >= len(logOutput) {
+		return ""
+	}
+
+	// Find the end of the checksum (either space, newline or end of string)
+	checksumEnd := checksumStart + 8
+	if checksumEnd > len(logOutput) {
+		checksumEnd = len(logOutput)
+	}
+
+	return logOutput[checksumStart:checksumEnd]
 }
