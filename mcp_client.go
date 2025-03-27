@@ -76,6 +76,13 @@ func (c *MCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 }
 
 func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
+	// Check tool restrictions
+	if c.config.Extensions != nil && !c.isToolAllowed(name) {
+		logger := WithComponent("mcp_client")
+		logger.Warn("Tool access denied", "tool", name)
+		return nil, fmt.Errorf("tool %s is not allowed", name)
+	}
+
 	req := mcp.CallToolRequest{}
 	req.Params.Name = name
 	req.Params.Arguments = args
@@ -85,6 +92,36 @@ func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]i
 		return nil, fmt.Errorf("failed to call tool: %w", err)
 	}
 	return resp, nil
+}
+
+// isToolAllowed checks if the tool is allowed to be called
+func (c *MCPClient) isToolAllowed(toolName string) bool {
+	ext := c.config.Extensions
+	if ext == nil {
+		return true
+	}
+
+	// If allow list is specified, only allow tools in the list
+	if len(ext.Tools.Allow) > 0 {
+		for _, allowed := range ext.Tools.Allow {
+			if allowed == toolName {
+				return true
+			}
+		}
+		return false
+	}
+
+	// If no allow list but deny list exists, allow tools not in deny list
+	if len(ext.Tools.Deny) > 0 {
+		for _, denied := range ext.Tools.Deny {
+			if denied == toolName {
+				return false
+			}
+		}
+	}
+
+	// If neither list is specified, allow all tools
+	return true
 }
 
 // Close closes the connection to the MCP client

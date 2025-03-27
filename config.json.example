@@ -14,6 +14,18 @@
       "env": {
         "VAR1": "$SERVER2_VAR1",
         "VAR2": "$SERVER2_VAR2"
+      },
+      "_extensions": {
+        "tools": {
+          "allow": [
+            "tool1",
+            "tool2"
+          ],
+          "deny": [
+            "tool11",
+            "tool12"
+          ]
+        }
       }
     }
   }

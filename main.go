@@ -15,9 +15,21 @@ import (
 
 // ServerConfig represents the MCP server configuration structure
 type ServerConfig struct {
-	Command string            `yaml:"command" json:"command"`
-	Args    []string          `yaml:"args" json:"args"`
-	Env     map[string]string `yaml:"env" json:"env"`
+	Command    string            `yaml:"command" json:"command"`
+	Args       []string          `yaml:"args" json:"args"`
+	Env        map[string]string `yaml:"env" json:"env"`
+	Extensions *Extensions       `yaml:"_extensions" json:"_extensions"`
+}
+
+// ToolsExtensions contains tool allow/deny lists
+type ToolsExtensions struct {
+	Allow []string `yaml:"allow" json:"allow"`
+	Deny  []string `yaml:"deny" json:"deny"`
+}
+
+// Extensions contains various extension configurations
+type Extensions struct {
+	Tools ToolsExtensions `yaml:"tools" json:"tools"`
 }
 
 // Config represents the application's global configuration structure

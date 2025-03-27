@@ -116,6 +116,42 @@ func TestLoadConfig(t *testing.T) {
 			extension: ".yaml",
 			wantErr:   true,
 		},
+		{
+			name: "Valid YAML file with Extensions",
+			content: `mcpServers:
+  test-service:
+    command: echo
+    args:
+      - hello
+      - world
+    env:
+      TEST_ENV: test-value
+    _extensions:
+      tools:
+        allow:
+          - tool1
+          - tool2
+        deny:
+          - tool3
+          - tool4`,
+			extension: ".yaml",
+			want: &Config{
+				MCPServers: map[string]ServerConfig{
+					"test-service": {
+						Command: "echo",
+						Args:    []string{"hello", "world"},
+						Env:     map[string]string{"TEST_ENV": "test-value"},
+						Extensions: &Extensions{
+							Tools: ToolsExtensions{
+								Allow: []string{"tool1", "tool2"},
+								Deny:  []string{"tool3", "tool4"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -171,6 +207,31 @@ func TestConvertToMCPClientConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "With Extensions",
+			serverCfg: ServerConfig{
+				Command: "test-command",
+				Args:    []string{"arg1", "arg2"},
+				Env:     map[string]string{"ENV1": "val1", "ENV2": "val2"},
+				Extensions: &Extensions{
+					Tools: ToolsExtensions{
+						Allow: []string{"tool1", "tool2"},
+						Deny:  []string{"tool3", "tool4"},
+					},
+				},
+			},
+			want: &MCPClientConfig{
+				Command: "test-command",
+				Args:    []string{"arg1", "arg2"},
+				Env:     map[string]string{"ENV1": "val1", "ENV2": "val2"},
+				Extensions: &Extensions{
+					Tools: ToolsExtensions{
+						Allow: []string{"tool1", "tool2"},
+						Deny:  []string{"tool3", "tool4"},
+					},
+				},
+			},
+		},
+		{
 			name: "Empty values",
 			serverCfg: ServerConfig{
 				Command: "",
@@ -201,6 +262,12 @@ func TestMCPClientConfigSerialization(t *testing.T) {
 		Command: "test-command",
 		Args:    []string{"arg1", "arg2"},
 		Env:     map[string]string{"ENV1": "val1", "ENV2": "val2"},
+		Extensions: &Extensions{
+			Tools: ToolsExtensions{
+				Allow: []string{"tool1", "tool2"},
+				Deny:  []string{"tool3", "tool4"},
+			},
+		},
 	}
 
 	// JSON serialization/deserialization test
