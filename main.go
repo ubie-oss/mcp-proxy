@@ -42,6 +42,7 @@ func main() {
 	configPath := flag.String("config", "", "path to config file (required)")
 	port := flag.String("port", "8080", "port to listen on")
 	debug := flag.Bool("debug", false, "enable debug mode")
+	initTimeoutSec := flag.Int("init-timeout", 60, "timeout in seconds for each MCP client initialization")
 	flag.Parse()
 
 	// Initialize logger with level
@@ -91,11 +92,21 @@ func main() {
 			mcpCfg := ConvertToMCPClientConfig(serverCfg)
 			client, err := NewMCPClient(mcpCfg)
 			if err != nil {
-				logger.Error("Failed to initialize MCP client",
+				logger.Error("Failed to create MCP client",
 					"server_name", name,
 					"error", err)
 				continue
 			}
+
+			err = withTimeout(ctx, time.Duration(*initTimeoutSec)*time.Second, func(ctx context.Context) error {
+				_, err := client.Initialize(ctx)
+				return err
+			})
+			if err != nil {
+				logger.Error("Failed to initialize MCP client", "server_name", name, "error", err)
+				continue
+			}
+
 			tempMcpClients[name] = client
 			logger.Info("MCP Server initialized successfully", "server_name", name)
 
@@ -138,4 +149,11 @@ func main() {
 			os.Exit(1)
 		}
 	}
+}
+
+func withTimeout(parentCtx context.Context, timeout time.Duration, fn func(ctx context.Context) error) error {
+	ctx, cancel := context.WithTimeout(parentCtx, timeout)
+	defer cancel()
+
+	return fn(ctx)
 }

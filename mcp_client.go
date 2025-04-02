@@ -3,15 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/mcp"
-)
-
-const (
-	// default initialize timeout
-	defaultInitializeTimeout = 60 * time.Second
 )
 
 // MCPClient provides an interface to external MCP servers
@@ -37,7 +31,13 @@ func NewMCPClient(config *MCPClientConfig) (*MCPClient, error) {
 		return nil, fmt.Errorf("failed to create MCP client: %w", err)
 	}
 
-	// Initialize the client with timeout
+	return &MCPClient{
+		config: config,
+		client: c,
+	}, nil
+}
+
+func (c *MCPClient) Initialize(ctx context.Context) (*mcp.InitializeResult, error) {
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
@@ -45,21 +45,7 @@ func NewMCPClient(config *MCPClientConfig) (*MCPClient, error) {
 		Version: "1.0.0",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultInitializeTimeout)
-	defer cancel()
-
-	if _, err := c.Initialize(ctx, initRequest); err != nil {
-		return nil, fmt.Errorf("failed to initialize MCP client: %w", err)
-	}
-
-	return &MCPClient{
-		config: config,
-		client: c,
-	}, nil
-}
-
-func (c *MCPClient) Initialize(ctx context.Context, req mcp.InitializeRequest) (*mcp.InitializeResult, error) {
-	resp, err := c.client.Initialize(ctx, req)
+	resp, err := c.client.Initialize(ctx, initRequest)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize: %w", err)
 	}
