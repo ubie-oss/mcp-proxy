@@ -99,7 +99,21 @@ func (c *MCPClient) ListTools(ctx context.Context) ([]mcp.Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to list tools: %w", err)
 	}
-	return resp.Tools, nil
+
+	// Skip filtering if no extensions are configured
+	if c.config.Extensions == nil {
+		return resp.Tools, nil
+	}
+
+	// Filter tools based on allow/deny lists
+	var filteredTools []mcp.Tool
+	for _, tool := range resp.Tools {
+		if c.isToolAllowed(tool.Name) {
+			filteredTools = append(filteredTools, tool)
+		}
+	}
+
+	return filteredTools, nil
 }
 
 func (c *MCPClient) CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error) {
