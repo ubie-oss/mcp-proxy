@@ -152,6 +152,63 @@ func TestLoadConfig(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "Valid YAML file with disabled extension",
+			content: `mcpServers:
+  disabled-service:
+    command: echo
+    args:
+      - hello
+      - world
+    _extensions:
+      disabled: true
+      tools:
+        allow:
+          - tool1`,
+			extension: ".yaml",
+			want: &Config{
+				MCPServers: map[string]ServerConfig{
+					"disabled-service": {
+						Command: "echo",
+						Args:    []string{"hello", "world"},
+						Extensions: &Extensions{
+							Disabled: true,
+							Tools: ToolsExtensions{
+								Allow: []string{"tool1"},
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "Valid JSON file with SSE and disabled extensions",
+			content: `{
+				"mcpServers": {
+					"sse-service": {
+						"url": "https://example.com/sse",
+						"_extensions": {
+							"sse": true,
+							"disabled": false
+						}
+					}
+				}
+			}`,
+			extension: ".json",
+			want: &Config{
+				MCPServers: map[string]ServerConfig{
+					"sse-service": {
+						Url: "https://example.com/sse",
+						Extensions: &Extensions{
+							Sse:      true,
+							Disabled: false,
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -242,6 +299,35 @@ func TestConvertToMCPClientConfig(t *testing.T) {
 				Command: "",
 				Args:    []string{},
 				Env:     map[string]string{},
+			},
+		},
+		{
+			name: "With disabled extension",
+			serverCfg: ServerConfig{
+				Command: "test-command",
+				Args:    []string{"arg1"},
+				Env:     map[string]string{"ENV1": "val1"},
+				Extensions: &Extensions{
+					Disabled: true,
+					Sse:      true,
+					Tools: ToolsExtensions{
+						Allow: []string{"tool1"},
+						Deny:  []string{"tool2"},
+					},
+				},
+			},
+			want: &MCPClientConfig{
+				Command: "test-command",
+				Args:    []string{"arg1"},
+				Env:     map[string]string{"ENV1": "val1"},
+				Extensions: &Extensions{
+					Disabled: true,
+					Sse:      true,
+					Tools: ToolsExtensions{
+						Allow: []string{"tool1"},
+						Deny:  []string{"tool2"},
+					},
+				},
 			},
 		},
 	}

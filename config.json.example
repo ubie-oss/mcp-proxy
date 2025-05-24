@@ -9,6 +9,9 @@
       }
     },
     "server2": {
+      "url": "https://example.com/mcp"
+    },
+    "server3": {
       "command": "npx",
       "args": ["module2"],
       "env": {
@@ -16,6 +19,8 @@
         "VAR2": "$SERVER2_VAR2"
       },
       "_extensions": {
+        "disabled": false,
+        "sse": false,
         "tools": {
           "allow": [
             "tool1",

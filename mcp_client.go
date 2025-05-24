@@ -15,7 +15,7 @@ import (
 // MCPClient provides an interface to external MCP servers
 type MCPClient struct {
 	config       *MCPClientConfig
-	client       *client.StdioMCPClient
+	client       *client.Client
 	logger       *slog.Logger
 	stderrCancel context.CancelFunc
 	initOnce     sync.Once // Ensures monitoring starts only once during Initialize
@@ -30,11 +30,24 @@ func NewMCPClient(config *MCPClientConfig) (*MCPClient, error) {
 		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	c, err := client.NewStdioMCPClient(
-		config.Command,
-		env,
-		config.Args...,
-	)
+	var c *client.Client
+	var err error
+	if config.Command != "" {
+		c, err = client.NewStdioMCPClient(
+			config.Command,
+			env,
+			config.Args...,
+		)
+	} else if config.Url != "" {
+		if config.Extensions != nil && config.Extensions.Sse {
+			c, err = client.NewSSEMCPClient(config.Url)
+		} else {
+			c, err = client.NewStreamableHttpClient(config.Url)
+		}
+	} else {
+		return nil, fmt.Errorf("no MCP transport specified")
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create MCP client: %w", err)
 	}
@@ -55,6 +68,10 @@ func (c *MCPClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 		c.logger.Debug("stderr capture goroutine started")
 	})
 
+	if err := c.client.Start(ctx); err != nil {
+		return nil, fmt.Errorf("failed to start client: %w", err)
+	}
+
 	initRequest := mcp.InitializeRequest{}
 	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initRequest.Params.ClientInfo = mcp.Implementation{
@@ -71,7 +88,11 @@ func (c *MCPClient) Initialize(ctx context.Context) (*mcp.InitializeResult, erro
 }
 
 func (c *MCPClient) captureStderr(ctx context.Context) {
-	stderr := c.client.Stderr()
+	stderr, ok := client.GetStderr(c.client)
+	if !ok {
+		c.logger.Debug("stderr not available for this client type")
+		return
+	}
 	scanner := bufio.NewScanner(stderr)
 	for {
 		select {
