@@ -7,6 +7,8 @@ mcpServers:
       VAR1: $SERVER1_VAR1
       VAR2: $SERVER1_VAR2
   server2:
+    url: "https://example.com/mcp"
+  server3:
     command: "npx"
     args:
       - "module2"
@@ -14,6 +16,8 @@ mcpServers:
       VAR1: $SERVER2_VAR1
       VAR2: $SERVER2_VAR2
     _extensions:
+      disabled: false
+      sse: false
       tools:
         allow:
           - tool1

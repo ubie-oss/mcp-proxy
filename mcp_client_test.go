@@ -109,6 +109,71 @@ func TestIsToolAllowed(t *testing.T) {
 			toolName: "tool1",
 			expected: true,
 		},
+		{
+			name: "Disabled server with allow list - tools should still be filtered",
+			client: &MCPClient{
+				config: &MCPClientConfig{
+					Extensions: &Extensions{
+						Disabled: true, // This should not affect tool filtering
+						Tools: ToolsExtensions{
+							Allow: []string{"tool1", "tool2"},
+							Deny:  []string{},
+						},
+					},
+				},
+			},
+			toolName: "tool1",
+			expected: true,
+		},
+		{
+			name: "Disabled server with deny list - tools should still be filtered",
+			client: &MCPClient{
+				config: &MCPClientConfig{
+					Extensions: &Extensions{
+						Disabled: true, // This should not affect tool filtering
+						Tools: ToolsExtensions{
+							Allow: []string{},
+							Deny:  []string{"tool1", "tool2"},
+						},
+					},
+				},
+			},
+			toolName: "tool3",
+			expected: true,
+		},
+		{
+			name: "Disabled server with deny list - denied tool should still be denied",
+			client: &MCPClient{
+				config: &MCPClientConfig{
+					Extensions: &Extensions{
+						Disabled: true, // This should not affect tool filtering
+						Tools: ToolsExtensions{
+							Allow: []string{},
+							Deny:  []string{"tool1", "tool2"},
+						},
+					},
+				},
+			},
+			toolName: "tool1",
+			expected: false,
+		},
+		{
+			name: "Enabled server with SSE and tool restrictions",
+			client: &MCPClient{
+				config: &MCPClientConfig{
+					Extensions: &Extensions{
+						Disabled: false,
+						Sse:      true,
+						Tools: ToolsExtensions{
+							Allow: []string{"tool1"},
+							Deny:  []string{"tool2"},
+						},
+					},
+				},
+			},
+			toolName: "tool1",
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {

@@ -12,12 +12,49 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// MCPClientConfig is the configuration used in NewMCPClient
-type MCPClientConfig struct {
+// ToolsExtensions contains tool allow/deny lists
+type ToolsExtensions struct {
+	Allow []string `yaml:"allow" json:"allow"`
+	Deny  []string `yaml:"deny" json:"deny"`
+}
+
+// Extensions contains various extension configurations
+type Extensions struct {
+	// If disabled, the server will not be started
+	Disabled bool `yaml:"disabled" json:"disabled"`
+
+	// If use SSE instead of Streamable HTTP
+	Sse bool `yaml:"sse" json:"sse"`
+
+	Tools ToolsExtensions `yaml:"tools" json:"tools"`
+}
+
+// ServerConfig represents the MCP server configuration structure
+type ServerConfig struct {
 	Command    string            `yaml:"command" json:"command"`
 	Args       []string          `yaml:"args" json:"args"`
 	Env        map[string]string `yaml:"env" json:"env"`
+	Url        string            `yaml:"url" json:"url"`
 	Extensions *Extensions       `yaml:"_extensions" json:"_extensions"`
+}
+
+// Config represents the application's global configuration structure
+type Config struct {
+	MCPServers map[string]ServerConfig `yaml:"mcpServers" json:"mcpServers"`
+}
+
+// MCPClientConfig is the configuration used in NewMCPClient
+type MCPClientConfig struct {
+	// Configs for stdio
+	Command string            `yaml:"command" json:"command"`
+	Args    []string          `yaml:"args" json:"args"`
+	Env     map[string]string `yaml:"env" json:"env"`
+
+	// Configs for SSE / Streamable HTTP
+	Url string `yaml:"url" json:"url"`
+
+	// Extensions
+	Extensions *Extensions `yaml:"_extensions" json:"_extensions"`
 }
 
 // LoadConfig loads the configuration file from the specified path
@@ -62,6 +99,7 @@ func ConvertToMCPClientConfig(serverCfg ServerConfig) *MCPClientConfig {
 		Command:    serverCfg.Command,
 		Args:       serverCfg.Args,
 		Env:        serverCfg.Env,
+		Url:        serverCfg.Url,
 		Extensions: serverCfg.Extensions,
 	}
 }
