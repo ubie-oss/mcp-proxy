@@ -42,13 +42,13 @@ type JSONRPCResponse struct {
 // Server represents an HTTP server
 type Server struct {
 	mcpClients map[string]*MCPClient
-	splitMode  bool
+	splitMode  bool // controls whether to use split mode (separate endpoints) or flat mode (unified endpoint)
 	initMu     sync.RWMutex
 	server     *http.Server
 	logger     *slog.Logger
 }
 
-// NewServer creates a new server
+// NewServer creates a new server with the specified MCP clients and mode
 func NewServer(mcpClients map[string]*MCPClient, splitMode bool) *Server {
 	return &Server{
 		mcpClients: mcpClients,
@@ -57,6 +57,7 @@ func NewServer(mcpClients map[string]*MCPClient, splitMode bool) *Server {
 	}
 }
 
+// handleJSONRPC routes requests to the appropriate handler based on server mode
 func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	if s.splitMode {
 		s.handleSplitMode(w, r)
@@ -65,6 +66,7 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleSplitMode handles requests in split mode where each MCP server has a separate endpoint
 func (s *Server) handleSplitMode(w http.ResponseWriter, r *http.Request) {
 	// Check if the MCP servers are ready
 	s.initMu.RLock()
@@ -194,6 +196,7 @@ func (s *Server) handleSplitMode(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleFlatMode handles requests in flat mode where all MCP servers are unified under a single endpoint
 func (s *Server) handleFlatMode(w http.ResponseWriter, r *http.Request) {
 	// Check if the MCP servers are ready
 	s.initMu.RLock()
@@ -389,10 +392,10 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // listAllTools aggregates tools from all connected MCP servers
 func (s *Server) listAllTools(ctx context.Context) *mcp.ListToolsResult {
-	toolMap := make(map[string]mcp.Tool)     // 重複排除用
-	conflictLog := make(map[string][]string) // 重複記録用
+	toolMap := make(map[string]mcp.Tool)     // For deduplication
+	conflictLog := make(map[string][]string) // For tracking conflicts
 
-	// サーバー名順（アルファベット順）で処理して deterministic order を保証
+	// Process servers in alphabetical order to ensure deterministic behavior
 	serverNames := make([]string, 0, len(s.mcpClients))
 	for name := range s.mcpClients {
 		serverNames = append(serverNames, name)
@@ -409,9 +412,9 @@ func (s *Server) listAllTools(ctx context.Context) *mcp.ListToolsResult {
 
 		for _, tool := range tools {
 			if existing, exists := toolMap[tool.Name]; exists {
-				// 重複検出
+				// Conflict detected
 				if conflictLog[tool.Name] == nil {
-					conflictLog[tool.Name] = []string{getServerNameFromToolMap(existing, s.mcpClients, ctx)} // 最初のサーバー名を記録
+					conflictLog[tool.Name] = []string{getServerNameFromToolMap(existing, s.mcpClients, ctx)} // Record first server name
 				}
 				conflictLog[tool.Name] = append(conflictLog[tool.Name], serverName)
 				s.logger.Warn("Tool name conflict in tools/list",
@@ -424,7 +427,7 @@ func (s *Server) listAllTools(ctx context.Context) *mcp.ListToolsResult {
 		}
 	}
 
-	// 配列に変換
+	// Convert map to slice
 	var allTools []mcp.Tool
 	for _, tool := range toolMap {
 		allTools = append(allTools, tool)
@@ -442,7 +445,7 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 
 	var foundServers []string
 
-	// サーバー名順（アルファベット順）で検索して deterministic order を保証
+	// Search servers in alphabetical order to ensure deterministic behavior
 	serverNames := make([]string, 0, len(s.mcpClients))
 	for name := range s.mcpClients {
 		serverNames = append(serverNames, name)
@@ -461,7 +464,7 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 			if tool.Name == toolName {
 				foundServers = append(foundServers, serverName)
 				if len(foundServers) == 1 {
-					// 最初に見つけたサーバーで実行
+					// Execute on first found server
 					args, _ := params["arguments"].(map[string]interface{})
 					if args == nil {
 						args = make(map[string]interface{})
@@ -473,7 +476,7 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 		}
 	}
 
-	// 重複があった場合は警告
+	// Warn if conflicts were detected
 	if len(foundServers) > 1 {
 		s.logger.Warn("Tool name conflict detected during call",
 			"tool", toolName,
@@ -484,7 +487,7 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 	return nil, fmt.Errorf("tool not found: %s", toolName)
 }
 
-// getServerNameFromToolMap はツールマップから最初にツールを提供したサーバー名を取得する補助関数
+// getServerNameFromToolMap is a helper function to get the server name that first provided a tool
 func getServerNameFromToolMap(tool mcp.Tool, clients map[string]*MCPClient, ctx context.Context) string {
 	for serverName, client := range clients {
 		tools, err := client.ListTools(ctx)
