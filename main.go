@@ -18,6 +18,7 @@ func main() {
 	configPath := flag.String("config", "", "path to config file (required)")
 	port := flag.String("port", "8080", "port to listen on")
 	debug := flag.Bool("debug", false, "enable debug mode")
+	splitMode := flag.Bool("split", false, "enable split mode (separate endpoints per MCP server)")
 	initTimeoutSec := flag.Int("init-timeout", 60, "timeout in seconds for each MCP client initialization")
 	flag.Parse()
 
@@ -48,7 +49,7 @@ func main() {
 	}
 
 	// Create empty MCP clients map and start server immediately
-	server := NewServer(make(map[string]*MCPClient))
+	server := NewServer(make(map[string]*MCPClient), *splitMode)
 
 	// Create context for graceful shutdown
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
