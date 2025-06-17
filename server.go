@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	jsonrpcVersion = "2.0"
-	// Default timeout for each request
+	jsonrpcVersion        = "2.0"
 	defaultRequestTimeout = 60 * time.Second
 )
 
@@ -48,14 +47,14 @@ type MCPClientInterface interface {
 // Server represents an HTTP server
 type Server struct {
 	mcpClients map[string]*MCPClient
-	splitMode  bool // controls whether to use split mode (separate endpoints) or flat mode (unified endpoint)
+	splitMode  bool
 	initMu     sync.RWMutex
 	server     *http.Server
 	logger     *slog.Logger
 
-	// Simple TTL cache for tools (flat mode only)
-	toolsCache  map[string][]mcp.Tool // serverName -> tools
-	cacheExpiry map[string]time.Time  // serverName -> expiry time
+	// Cache for tools (flat mode only)
+	toolsCache  map[string][]mcp.Tool
+	cacheExpiry map[string]time.Time
 	cacheMu     sync.RWMutex
 }
 
@@ -111,7 +110,6 @@ func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
 
 // createSplitModeHandler creates a handler for split mode requests
 func (s *Server) createSplitModeHandler(r *http.Request) (ModeHandler, error) {
-	// Extract server name from the first path segment
 	path := strings.Trim(r.URL.Path, "/")
 	pathSegments := strings.SplitN(path, "/", 2)
 
@@ -143,7 +141,6 @@ func (s *Server) createFlatModeHandler(r *http.Request) (ModeHandler, error) {
 
 // processRequest handles the common request processing logic
 func (s *Server) processRequest(w http.ResponseWriter, r *http.Request, handler ModeHandler) {
-	// Check if the MCP servers are ready
 	s.initMu.RLock()
 	defer s.initMu.RUnlock()
 
@@ -152,7 +149,6 @@ func (s *Server) processRequest(w http.ResponseWriter, r *http.Request, handler 
 		return
 	}
 
-	// Validate request (mode-specific)
 	logger, err := handler.validateRequest(r)
 	if err != nil {
 		logger.Error("Request validation failed", "error", err)
@@ -160,17 +156,14 @@ func (s *Server) processRequest(w http.ResponseWriter, r *http.Request, handler 
 		return
 	}
 
-	// Create a context with timeout for the request
 	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
 	defer cancel()
 
-	// Method check
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Read request body
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		logger.Error("Failed to read request body", "error", err)
@@ -179,7 +172,6 @@ func (s *Server) processRequest(w http.ResponseWriter, r *http.Request, handler 
 	}
 	defer r.Body.Close()
 
-	// Parse JSONRPC request
 	var req JSONRPCRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		logger.Error("Failed to parse JSON-RPC request", "error", err)
@@ -187,14 +179,12 @@ func (s *Server) processRequest(w http.ResponseWriter, r *http.Request, handler 
 		return
 	}
 
-	// Validate required fields
 	if err := validateJSONRPCRequest(&req); err != nil {
 		logger.Error("Invalid JSON-RPC request", "error", err)
 		writeJSONRPCError(w, -32600, err.Error(), nil, req.ID)
 		return
 	}
 
-	// Process methods
 	logger.Info("Processing MCP method", "method", req.Method)
 	var result interface{}
 
@@ -273,7 +263,6 @@ func (h *SplitModeHandler) handleToolsCall(ctx context.Context, params map[strin
 
 // FlatModeHandler implementations
 func (h *FlatModeHandler) validateRequest(r *http.Request) (*slog.Logger, error) {
-	// In flat mode, accept any path (health endpoints are handled separately)
 	return h.logger, nil
 }
 
@@ -376,10 +365,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // listAllTools aggregates tools from all connected MCP servers
 func (s *Server) listAllTools(ctx context.Context) *mcp.ListToolsResult {
-	toolMap := make(map[string]mcp.Tool)     // For deduplication
-	conflictLog := make(map[string][]string) // For tracking conflicts
+	toolMap := make(map[string]mcp.Tool)
+	conflictLog := make(map[string][]string)
 
-	// Process servers in alphabetical order to ensure deterministic behavior
 	serverNames := make([]string, 0, len(s.mcpClients))
 	for name := range s.mcpClients {
 		serverNames = append(serverNames, name)
@@ -396,13 +384,11 @@ func (s *Server) listAllTools(ctx context.Context) *mcp.ListToolsResult {
 
 		for _, tool := range tools {
 			if _, exists := toolMap[tool.Name]; exists {
-				// Conflict detected
 				if conflictLog[tool.Name] == nil {
-					// Find the server that first provided this tool (no API call needed)
 					firstServer := "unknown"
 					for prevServerName := range s.mcpClients {
 						if prevServerName == serverName {
-							break // We've reached current server, previous one was first
+							break
 						}
 						if prevTools, err := s.getToolsWithCache(ctx, prevServerName, s.mcpClients[prevServerName]); err == nil {
 							for _, prevTool := range prevTools {
@@ -429,7 +415,6 @@ func (s *Server) listAllTools(ctx context.Context) *mcp.ListToolsResult {
 		}
 	}
 
-	// Convert map to slice
 	var allTools []mcp.Tool
 	for _, tool := range toolMap {
 		allTools = append(allTools, tool)
@@ -447,7 +432,6 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 
 	var foundServers []string
 
-	// Search servers in alphabetical order to ensure deterministic behavior
 	serverNames := make([]string, 0, len(s.mcpClients))
 	for name := range s.mcpClients {
 		serverNames = append(serverNames, name)
@@ -466,7 +450,6 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 			if tool.Name == toolName {
 				foundServers = append(foundServers, serverName)
 				if len(foundServers) == 1 {
-					// Execute on first found server
 					args, _ := params["arguments"].(map[string]interface{})
 					if args == nil {
 						args = make(map[string]interface{})
@@ -478,7 +461,6 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 		}
 	}
 
-	// Warn if conflicts were detected
 	if len(foundServers) > 1 {
 		s.logger.Warn("Tool name conflict detected during call",
 			"tool", toolName,
@@ -489,10 +471,8 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 	return nil, fmt.Errorf("tool not found: %s", toolName)
 }
 
-// getToolsWithCache returns tools for a server with simple TTL caching (60 seconds)
-// Only used in flat mode for performance optimization
+// getToolsWithCache returns tools with 60s TTL caching for flat mode
 func (s *Server) getToolsWithCache(ctx context.Context, serverName string, client MCPClientInterface) ([]mcp.Tool, error) {
-	// Check cache first
 	s.cacheMu.RLock()
 	if tools, exists := s.toolsCache[serverName]; exists {
 		if expiry, hasExpiry := s.cacheExpiry[serverName]; hasExpiry && time.Now().Before(expiry) {
@@ -502,16 +482,14 @@ func (s *Server) getToolsWithCache(ctx context.Context, serverName string, clien
 	}
 	s.cacheMu.RUnlock()
 
-	// Cache miss or expired, fetch from server
 	tools, err := client.ListTools(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update cache
 	s.cacheMu.Lock()
 	s.toolsCache[serverName] = tools
-	s.cacheExpiry[serverName] = time.Now().Add(60 * time.Second) // 60 second TTL
+	s.cacheExpiry[serverName] = time.Now().Add(60 * time.Second)
 	s.cacheMu.Unlock()
 
 	return tools, nil
