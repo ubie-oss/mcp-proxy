@@ -70,14 +70,6 @@ func NewServer(mcpClients map[string]*MCPClient, splitMode bool) *Server {
 	}
 }
 
-// RequestContext holds the parsed request context for processing
-type RequestContext struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	request JSONRPCRequest
-	logger  *slog.Logger
-}
-
 // ModeHandler defines the interface for mode-specific handling
 type ModeHandler interface {
 	validateRequest(r *http.Request) (*slog.Logger, error)
