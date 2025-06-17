@@ -39,6 +39,12 @@ type JSONRPCResponse struct {
 	ID interface{} `json:"id"`
 }
 
+// MCPClientInterface defines the interface for MCP clients
+type MCPClientInterface interface {
+	ListTools(ctx context.Context) ([]mcp.Tool, error)
+	CallTool(ctx context.Context, name string, args map[string]interface{}) (*mcp.CallToolResult, error)
+}
+
 // Server represents an HTTP server
 type Server struct {
 	mcpClients map[string]*MCPClient
@@ -46,56 +52,121 @@ type Server struct {
 	initMu     sync.RWMutex
 	server     *http.Server
 	logger     *slog.Logger
+
+	// Simple TTL cache for tools (flat mode only)
+	toolsCache  map[string][]mcp.Tool // serverName -> tools
+	cacheExpiry map[string]time.Time  // serverName -> expiry time
+	cacheMu     sync.RWMutex
 }
 
 // NewServer creates a new server with the specified MCP clients and mode
 func NewServer(mcpClients map[string]*MCPClient, splitMode bool) *Server {
 	return &Server{
-		mcpClients: mcpClients,
-		splitMode:  splitMode,
-		logger:     WithComponent("server"),
+		mcpClients:  mcpClients,
+		splitMode:   splitMode,
+		logger:      WithComponent("server"),
+		toolsCache:  make(map[string][]mcp.Tool),
+		cacheExpiry: make(map[string]time.Time),
 	}
+}
+
+// RequestContext holds the parsed request context for processing
+type RequestContext struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	request JSONRPCRequest
+	logger  *slog.Logger
+}
+
+// ModeHandler defines the interface for mode-specific handling
+type ModeHandler interface {
+	validateRequest(r *http.Request) (*slog.Logger, error)
+	handleToolsList(ctx context.Context) (interface{}, error)
+	handleToolsCall(ctx context.Context, params map[string]interface{}) (interface{}, error)
+}
+
+// SplitModeHandler handles requests in split mode
+type SplitModeHandler struct {
+	server    *Server
+	mcpClient *MCPClient
+	logger    *slog.Logger
+}
+
+// FlatModeHandler handles requests in flat mode
+type FlatModeHandler struct {
+	server *Server
+	logger *slog.Logger
 }
 
 // handleJSONRPC routes requests to the appropriate handler based on server mode
 func (s *Server) handleJSONRPC(w http.ResponseWriter, r *http.Request) {
+	var handler ModeHandler
+	var err error
+
 	if s.splitMode {
-		s.handleSplitMode(w, r)
+		handler, err = s.createSplitModeHandler(r)
 	} else {
-		s.handleFlatMode(w, r)
+		handler, err = s.createFlatModeHandler(r)
 	}
-}
 
-// handleSplitMode handles requests in split mode where each MCP server has a separate endpoint
-func (s *Server) handleSplitMode(w http.ResponseWriter, r *http.Request) {
-	// Check if the MCP servers are ready
-	s.initMu.RLock()
-	defer s.initMu.RUnlock()
-
-	if len(s.mcpClients) == 0 {
-		http.Error(w, "Service not ready", http.StatusServiceUnavailable)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	s.processRequest(w, r, handler)
+}
+
+// createSplitModeHandler creates a handler for split mode requests
+func (s *Server) createSplitModeHandler(r *http.Request) (ModeHandler, error) {
 	// Extract server name from the first path segment
 	path := strings.Trim(r.URL.Path, "/")
 	pathSegments := strings.SplitN(path, "/", 2)
 
 	if len(pathSegments) == 0 || pathSegments[0] == "" {
-		http.Error(w, "Server name is required in path", http.StatusBadRequest)
-		return
+		return nil, fmt.Errorf("Server name is required in path")
 	}
 
 	serverName := pathSegments[0]
 	mcpClient, exists := s.mcpClients[serverName]
 
 	if !exists {
-		http.Error(w, fmt.Sprintf("Server %s not found", serverName), http.StatusNotFound)
+		return nil, fmt.Errorf("Server %s not found", serverName)
+	}
+
+	return &SplitModeHandler{
+		server:    s,
+		mcpClient: mcpClient,
+		logger:    WithComponentAndServer("server", serverName),
+	}, nil
+}
+
+// createFlatModeHandler creates a handler for flat mode requests
+func (s *Server) createFlatModeHandler(r *http.Request) (ModeHandler, error) {
+	return &FlatModeHandler{
+		server: s,
+		logger: WithComponent("server"),
+	}, nil
+}
+
+// processRequest handles the common request processing logic
+func (s *Server) processRequest(w http.ResponseWriter, r *http.Request, handler ModeHandler) {
+	// Check if the MCP servers are ready
+	s.initMu.RLock()
+	defer s.initMu.RUnlock()
+
+	if len(s.mcpClients) == 0 {
+		http.Error(w, "Service not ready", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Create logger with server name
-	logger := WithComponentAndServer("server", serverName)
+	// Validate request (mode-specific)
+	logger, err := handler.validateRequest(r)
+	if err != nil {
+		logger.Error("Request validation failed", "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Create a context with timeout for the request
 	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
@@ -132,7 +203,7 @@ func (s *Server) handleSplitMode(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process methods
-	logger.Info("Calling MCP method", "method", req.Method)
+	logger.Info("Processing MCP method", "method", req.Method)
 	var result interface{}
 
 	switch req.Method {
@@ -147,28 +218,14 @@ func (s *Server) handleSplitMode(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
 		default:
-			tools, err := mcpClient.ListTools(ctx)
-			if err == nil {
-				result = &mcp.ListToolsResult{
-					Tools: tools,
-				}
-			}
+			result, err = handler.handleToolsList(ctx)
 		}
 	case "tools/call":
 		select {
 		case <-ctx.Done():
 			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
 		default:
-			toolName, _ := req.Params["name"].(string)
-			logger.Info("Calling MCP tool", "tool", toolName)
-
-			// Try type assertion for arguments, use empty map if it fails
-			args, ok := req.Params["arguments"].(map[string]interface{})
-			if !ok {
-				logger.Warn("Arguments type assertion failed, using empty map")
-				args = make(map[string]interface{})
-			}
-			result, err = mcpClient.CallTool(ctx, req.Params["name"].(string), args)
+			result, err = handler.handleToolsCall(ctx, req.Params)
 		}
 	default:
 		err = fmt.Errorf("method not found: %s", req.Method)
@@ -196,109 +253,44 @@ func (s *Server) handleSplitMode(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleFlatMode handles requests in flat mode where all MCP servers are unified under a single endpoint
-func (s *Server) handleFlatMode(w http.ResponseWriter, r *http.Request) {
-	// Check if the MCP servers are ready
-	s.initMu.RLock()
-	defer s.initMu.RUnlock()
+// SplitModeHandler implementations
+func (h *SplitModeHandler) validateRequest(r *http.Request) (*slog.Logger, error) {
+	return h.logger, nil
+}
 
-	if len(s.mcpClients) == 0 {
-		http.Error(w, "Service not ready", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Check path: accept /mcp or /api/mcp
-	path := strings.Trim(r.URL.Path, "/")
-	if path != "mcp" && path != "api/mcp" {
-		http.Error(w, "Path not found. Use /mcp or /api/mcp", http.StatusNotFound)
-		return
-	}
-
-	logger := WithComponent("server")
-
-	// Create a context with timeout for the request
-	ctx, cancel := context.WithTimeout(r.Context(), defaultRequestTimeout)
-	defer cancel()
-
-	// Method check
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Read request body
-	body, err := io.ReadAll(r.Body)
+func (h *SplitModeHandler) handleToolsList(ctx context.Context) (interface{}, error) {
+	tools, err := h.mcpClient.ListTools(ctx)
 	if err != nil {
-		logger.Error("Failed to read request body", "error", err)
-		http.Error(w, "Failed to read request body", http.StatusBadRequest)
-		return
+		return nil, err
 	}
-	defer r.Body.Close()
+	return &mcp.ListToolsResult{Tools: tools}, nil
+}
 
-	// Parse JSONRPC request
-	var req JSONRPCRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		logger.Error("Failed to parse JSON-RPC request", "error", err)
-		writeJSONRPCError(w, -32700, "Parse error", nil, nil)
-		return
+func (h *SplitModeHandler) handleToolsCall(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	toolName, _ := params["name"].(string)
+	h.logger.Info("Calling MCP tool", "tool", toolName)
+
+	// Try type assertion for arguments, use empty map if it fails
+	args, ok := params["arguments"].(map[string]interface{})
+	if !ok {
+		h.logger.Warn("Arguments type assertion failed, using empty map")
+		args = make(map[string]interface{})
 	}
+	return h.mcpClient.CallTool(ctx, params["name"].(string), args)
+}
 
-	// Validate required fields
-	if err := validateJSONRPCRequest(&req); err != nil {
-		logger.Error("Invalid JSON-RPC request", "error", err)
-		writeJSONRPCError(w, -32600, err.Error(), nil, req.ID)
-		return
-	}
+// FlatModeHandler implementations
+func (h *FlatModeHandler) validateRequest(r *http.Request) (*slog.Logger, error) {
+	// In flat mode, accept any path (health endpoints are handled separately)
+	return h.logger, nil
+}
 
-	// Process methods
-	logger.Info("Calling MCP method (flat mode)", "method", req.Method)
-	var result interface{}
+func (h *FlatModeHandler) handleToolsList(ctx context.Context) (interface{}, error) {
+	return h.server.listAllTools(ctx), nil
+}
 
-	switch req.Method {
-	case "initialize":
-		result = &mcp.InitializeResult{
-			ProtocolVersion: mcp.LATEST_PROTOCOL_VERSION,
-		}
-	case "notifications/initialized":
-		result = &mcp.InitializedNotification{}
-	case "tools/list":
-		select {
-		case <-ctx.Done():
-			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
-		default:
-			result = s.listAllTools(ctx)
-		}
-	case "tools/call":
-		select {
-		case <-ctx.Done():
-			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
-		default:
-			result, err = s.callToolAuto(ctx, req.Params)
-		}
-	default:
-		err = fmt.Errorf("method not found: %s", req.Method)
-	}
-
-	if err != nil {
-		logger.Error("MCP error", "error", err)
-		writeJSONRPCError(w, -32603, "Internal error", err.Error(), req.ID)
-		return
-	}
-
-	// Build response
-	resp := JSONRPCResponse{
-		JSONRPC: jsonrpcVersion,
-		Result:  result,
-		ID:      req.ID,
-	}
-
-	// Send JSON response
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		logger.Error("Failed to encode response", "error", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
-	}
+func (h *FlatModeHandler) handleToolsCall(ctx context.Context, params map[string]interface{}) (interface{}, error) {
+	return h.server.callToolAuto(ctx, params)
 }
 
 func validateJSONRPCRequest(req *JSONRPCRequest) error {
@@ -404,17 +396,35 @@ func (s *Server) listAllTools(ctx context.Context) *mcp.ListToolsResult {
 
 	for _, serverName := range serverNames {
 		client := s.mcpClients[serverName]
-		tools, err := client.ListTools(ctx)
+		tools, err := s.getToolsWithCache(ctx, serverName, client)
 		if err != nil {
 			s.logger.Error("Failed to list tools from server", "server", serverName, "error", err)
 			continue
 		}
 
 		for _, tool := range tools {
-			if existing, exists := toolMap[tool.Name]; exists {
+			if _, exists := toolMap[tool.Name]; exists {
 				// Conflict detected
 				if conflictLog[tool.Name] == nil {
-					conflictLog[tool.Name] = []string{getServerNameFromToolMap(existing, s.mcpClients, ctx)} // Record first server name
+					// Find the server that first provided this tool (no API call needed)
+					firstServer := "unknown"
+					for prevServerName := range s.mcpClients {
+						if prevServerName == serverName {
+							break // We've reached current server, previous one was first
+						}
+						if prevTools, err := s.getToolsWithCache(ctx, prevServerName, s.mcpClients[prevServerName]); err == nil {
+							for _, prevTool := range prevTools {
+								if prevTool.Name == tool.Name {
+									firstServer = prevServerName
+									break
+								}
+							}
+							if firstServer != "unknown" {
+								break
+							}
+						}
+					}
+					conflictLog[tool.Name] = []string{firstServer}
 				}
 				conflictLog[tool.Name] = append(conflictLog[tool.Name], serverName)
 				s.logger.Warn("Tool name conflict in tools/list",
@@ -454,7 +464,7 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 
 	for _, serverName := range serverNames {
 		client := s.mcpClients[serverName]
-		tools, err := client.ListTools(ctx)
+		tools, err := s.getToolsWithCache(ctx, serverName, client)
 		if err != nil {
 			s.logger.Error("Failed to list tools for tool call routing", "server", serverName, "error", err)
 			continue
@@ -487,18 +497,30 @@ func (s *Server) callToolAuto(ctx context.Context, params map[string]interface{}
 	return nil, fmt.Errorf("tool not found: %s", toolName)
 }
 
-// getServerNameFromToolMap is a helper function to get the server name that first provided a tool
-func getServerNameFromToolMap(tool mcp.Tool, clients map[string]*MCPClient, ctx context.Context) string {
-	for serverName, client := range clients {
-		tools, err := client.ListTools(ctx)
-		if err != nil {
-			continue
-		}
-		for _, t := range tools {
-			if t.Name == tool.Name {
-				return serverName
-			}
+// getToolsWithCache returns tools for a server with simple TTL caching (60 seconds)
+// Only used in flat mode for performance optimization
+func (s *Server) getToolsWithCache(ctx context.Context, serverName string, client MCPClientInterface) ([]mcp.Tool, error) {
+	// Check cache first
+	s.cacheMu.RLock()
+	if tools, exists := s.toolsCache[serverName]; exists {
+		if expiry, hasExpiry := s.cacheExpiry[serverName]; hasExpiry && time.Now().Before(expiry) {
+			s.cacheMu.RUnlock()
+			return tools, nil
 		}
 	}
-	return "unknown"
+	s.cacheMu.RUnlock()
+
+	// Cache miss or expired, fetch from server
+	tools, err := client.ListTools(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update cache
+	s.cacheMu.Lock()
+	s.toolsCache[serverName] = tools
+	s.cacheExpiry[serverName] = time.Now().Add(60 * time.Second) // 60 second TTL
+	s.cacheMu.Unlock()
+
+	return tools, nil
 }
