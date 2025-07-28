@@ -196,19 +196,9 @@ func (s *Server) processRequest(w http.ResponseWriter, r *http.Request, handler 
 	case "notifications/initialized":
 		result = &mcp.InitializedNotification{}
 	case "tools/list":
-		select {
-		case <-ctx.Done():
-			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
-		default:
-			result, err = handler.handleToolsList(ctx)
-		}
+		result, err = handler.handleToolsList(ctx)
 	case "tools/call":
-		select {
-		case <-ctx.Done():
-			err = fmt.Errorf("request timeout after %v", defaultRequestTimeout)
-		default:
-			result, err = handler.handleToolsCall(ctx, req.Params)
-		}
+		result, err = handler.handleToolsCall(ctx, req.Params)
 	default:
 		err = fmt.Errorf("method not found: %s", req.Method)
 	}
